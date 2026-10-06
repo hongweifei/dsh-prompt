@@ -1,0 +1,50 @@
+{
+  "name": "@dsh-external/dsh-prompt",
+  "version": "0.1.0",
+  "description": "Editable prompt snippets injected into DSH on three channels: the system prompt, the per-turn runtime context, and a user message at each turn's start. DSH 提示词注入插件：片段可增删改、按通道注入系统提示词 / 运行时上下文 / 每轮用户消息，带设置页与输入框快捷开关。",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "meta": {
+    "title": "Prompt snippets",
+    "description": "Manage reusable prompt snippets and choose where each one is injected: the system prompt, the runtime context, or a user message at the start of every turn."
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    "locale",
+    "docs",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-test-renderer": "18.3.1"
+  }
+}

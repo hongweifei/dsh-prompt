@@ -1,0 +1,25 @@
+# Activation row for the dsh-prompt bundle.
+#
+# When this package joins a profile's `dsh.profile.bundles`, this patch becomes
+# that profile's bundle layer and the row below mounts the plugin at startup.
+#
+# Tunables belong in the profile's own cordis.patch.yml as an `id: prompt`
+# override, so they survive plugin upgrades:
+#
+#   - id: prompt
+#     name: '@dsh-external/dsh-prompt'
+#     config:
+#       enabled: true
+#       maxChars: 8000        # combined character ceiling across all three channels; 0 = no cap
+#       sectionOrder: 100     # where the system-prompt section sits (0 = persona, 500 = plan policy)
+#       contextOrder: 200     # where the runtime context sits (harness contexts are 110/115/120)
+#       refreshMs: 3000       # how often the store snapshot is re-read; 0 disables the timer
+- insert:
+    - id: prompt
+      name: '@dsh-external/dsh-prompt'
+      config:
+        enabled: true
+        maxChars: 8000
+        sectionOrder: 100
+        contextOrder: 200
+        refreshMs: 3000

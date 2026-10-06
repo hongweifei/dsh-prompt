@@ -1,0 +1,5 @@
+node_modules/
+test/preview.html
+test/preview-*.html
+TODO.md
+*.log

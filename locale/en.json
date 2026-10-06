@@ -1,0 +1,4 @@
+{
+  "title": "Prompt snippets",
+  "description": "Manage reusable prompt snippets and choose where each one is injected: the system prompt, the runtime context, or a user message at the start of every turn."
+}
