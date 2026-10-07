@@ -126,10 +126,24 @@ test('remove reports whether it actually removed something', () => {
 
 test('a fresh store has the defaults and no snippets', () => {
   const store = createStore()
-  assert.equal(store.enabled, true)
+  // Injection ships OFF: installing the plugin must not change any request.
+  assert.equal(store.defaultEnabled, false)
   assert.deepEqual(store.inject, { system: true, context: true, message: true })
   assert.deepEqual(store.snippets, [])
   assert.deepEqual(store.sessions, {})
+})
+
+test('a version-1 store is abandoned rather than read as version 2', () => {
+  // v1's `enabled` meant "the plugin is on" and defaulted to ON. Reading it as
+  // the new `defaultEnabled` would leave injection on for a user who never
+  // asked for it, so the whole file is abandoned and the default (off) applies.
+  const { store } = normalizeStore({
+    version: 1,
+    enabled: true,
+    snippets: [{ id: 'p-1', name: 'old', text: 'x', target: 'system' }],
+  })
+  assert.equal(store.defaultEnabled, false, 'a v1 store must not turn injection on')
+  assert.deepEqual(store.snippets, [])
 })
 
 test('a wrong store version is abandoned, not migrated', () => {
@@ -140,7 +154,7 @@ test('a wrong store version is abandoned, not migrated', () => {
 
 test('a malformed snippet is dropped and counted, never half-kept', () => {
   const { store, dropped } = normalizeStore({
-    version: 1,
+    version: 2,
     snippets: [
       { id: 'p-1', name: 'good', text: 'x', target: 'system', enabled: true, order: 1 },
       { id: 'p-2', name: '', text: 'x', target: 'system' },
@@ -155,7 +169,7 @@ test('a malformed snippet is dropped and counted, never half-kept', () => {
 
 test('a duplicated id is dropped rather than made unreachable', () => {
   const { store, dropped } = normalizeStore({
-    version: 1,
+    version: 2,
     snippets: [
       { id: 'p-same', name: 'first', text: 'x', target: 'system' },
       { id: 'p-same', name: 'second', text: 'y', target: 'system' },
@@ -168,7 +182,7 @@ test('a duplicated id is dropped rather than made unreachable', () => {
 
 test('session records are normalized and extras validated', () => {
   const { store } = normalizeStore({
-    version: 1,
+    version: 2,
     sessions: {
       'session-1': { override: 'on', extras: [{ name: 'x', text: 'y', target: 'message' }, { name: '', text: 'y' }], updatedAt: 5 },
       'session-2': { override: 'bogus', extras: [] },
@@ -187,26 +201,29 @@ test('a missing session reads as the default record', () => {
 
 /* ---------------- effective state ---------------- */
 
-test('the override resolves against the global switch', () => {
-  const store = { ...createStore(), enabled: false }
-  assert.equal(effectiveState(store, undefined).effective, false)
-  const on = setSession(store, 'session-1', { override: 'on' }, 1)
+test('the override resolves against the default mode', () => {
+  // The shipped default is OFF.
+  assert.equal(effectiveState(createStore(), undefined).effective, false)
+  // A session forced on injects even though the default is off.
+  const on = setSession(createStore(), 'session-1', { override: 'on' }, 1)
   assert.equal(effectiveState(on, 'session-1').effective, true)
   assert.equal(effectiveState(on, 'session-1').override, 'on')
-  const off = setSession({ ...createStore(), enabled: true }, 'session-1', { override: 'off' }, 1)
+  // A session forced off stays silent even with the default on.
+  const off = setSession({ ...createStore(), defaultEnabled: true }, 'session-1', { override: 'off' }, 1)
   assert.equal(effectiveState(off, 'session-1').effective, false)
-  // auto follows the global switch in both directions
-  assert.equal(effectiveState({ ...store, enabled: true }, 'session-1').effective, true)
+  // `auto` follows the default in both directions.
+  assert.equal(effectiveState({ ...createStore(), defaultEnabled: true }, 'session-1').effective, true)
+  assert.equal(effectiveState({ ...createStore(), defaultEnabled: false }, 'session-1').effective, false)
 })
 
-test('the global switches are reported as a copy', () => {
+test('the default switches are reported as a copy', () => {
   const store = createStore()
   const switches = globalSwitches(store)
   switches.inject.system = false
   assert.equal(store.inject.system, true, 'the reported switches must not alias the store')
 })
 
-test('clearing a session returns it to following the global switches', () => {
+test('clearing a session returns it to following the default mode', () => {
   const store = setSession(createStore(), 'session-1', { override: 'off' }, 1)
   assert.equal(sessionRecord(store, 'session-1').override, 'off')
   assert.equal(sessionRecord(clearSession(store, 'session-1'), 'session-1').override, 'auto')
@@ -276,9 +293,9 @@ test('escaping leaves no adjacent braces however long the run is', () => {
   // throw. Every run length must come out with no `{{` anywhere.
   for (const text of ['{{', '{{{', '{{{{', '{{{{{', '{{{a}}}', '{{{{a}}}}', 'x{{{y}}}z']) {
     const escaped = escapeGroups(text)
-    assert.equal(escaped.includes('{{'), false, `"${text}" → "${escaped}" still holds "{{"`)
+    assert.equal(escaped.includes('{{'), false, `"${text}" 鈫?"${escaped}" still holds "{{"`)
     // Nothing is deleted: only spaces are inserted.
-    assert.equal(escaped.replaceAll(' ', ''), text, `"${text}" → "${escaped}" changed the text`)
+    assert.equal(escaped.replaceAll(' ', ''), text, `"${text}" 鈫?"${escaped}" changed the text`)
   }
 })
 

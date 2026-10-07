@@ -136,7 +136,9 @@ await test('the client logic and data stay inside their budgets', () => {
 
 /** A representative status payload — every field the panel reads is present. */
 const STATUS = {
-  enabled: true,
+  // The panel's "default mode". The product default is off; this fixture shows a
+  // user who turned it on, so the panel's ON state is what gets rendered.
+  defaultEnabled: true,
   inject: { system: true, context: true, message: false },
   snippets: [
     { id: 'p-11111111', name: '代码风格', text: '回复一律用中文；提交消息也用中文。', target: 'system', enabled: true, order: 100 },
@@ -396,6 +398,92 @@ await test('the session row shows an identifying id, not the constant prefix', a
   // STATUS.session.id is `session-abcdef12-3456`, so the row must show `abcdef12`.
   assert.match(all, /abcdef12/, 'the session row must show the id it is talking about')
   assert.equal(/session-abcdef12/.test(all), false, 'the constant prefix must be stripped')
+  renderer.unmount()
+})
+
+await test('the panel offers the default mode as a setting, not a master switch', async () => {
+  const locale = makeLocale('zh')
+  const entries = applyPlugin(locale)
+  const entry = entries.get('prompt')
+  const renderer = await render(entry.component, { t: locale.bind('prompt'), close: () => {} })
+  const all = texts(renderer.toJSON()).join(' | ')
+  // The row exists, names both states, and explains what it governs.
+  assert.match(all, /默认模式/, 'the default-mode row must be present')
+  assert.match(all, /默认开/, 'the ON choice must be offered')
+  assert.match(all, /默认关/, 'the OFF choice must be offered')
+  assert.match(all, /没有单独设置过的会话/, 'the row must explain what the default governs')
+  // The old master-switch wording must be gone.
+  assert.equal(/总开关/.test(all), false, 'the master-switch wording must be gone')
+  // And the session row still offers the per-session override.
+  assert.match(all, /跟随默认/, 'the session override must still be offered')
+  renderer.unmount()
+})
+
+await test('the panel renders with the default OFF, which is how it ships', async () => {
+  const locale = makeLocale('zh')
+  const entries = applyPlugin(locale)
+  const entry = entries.get('prompt')
+  const off = loadBundle({ status: { ...STATUS, defaultEnabled: false, session: { ...STATUS.session, effective: false } } })
+  const captured = new Map()
+  off.apply({
+    effect: (body) => {
+      body()
+      return () => {}
+    },
+    locale,
+    slots: {
+      inject: (_owner, callback) => callback(),
+      register: (options, component) => {
+        captured.set(options.id, component)
+        return () => {}
+      },
+    },
+  })
+  const renderer = await render(captured.get('prompt'), { t: locale.bind('prompt'), close: () => {} })
+  const all = texts(renderer.toJSON()).join(' | ')
+  assert.match(all, /注入关/, 'the effective state must read as off')
+  renderer.unmount()
+})
+
+await test('the composer button reports the session state and its next click', async () => {
+  const locale = makeLocale('zh')
+  const entries = applyPlugin(locale)
+  const entry = entries.get('prompt-toggle')
+  // Default off, session forced on: the button must show ON and offer to turn it off.
+  const forced = loadBundle({
+    status: { ...STATUS, defaultEnabled: false, session: { ...STATUS.session, override: 'on', effective: true } },
+  })
+  const captured = new Map()
+  forced.apply({
+    effect: (body) => {
+      body()
+      return () => {}
+    },
+    locale,
+    slots: {
+      inject: (_owner, callback) => callback(),
+      register: (options, component) => {
+        captured.set(options.id, component)
+        return () => {}
+      },
+    },
+  })
+  const renderer = await render(captured.get('prompt-toggle'), { t: locale.bind('prompt'), sessionId: 'session-abcdef12-3456' })
+  const tree = renderer.toJSON()
+  const buttons = []
+  const walk = (node) => {
+    if (node === null || typeof node !== 'object') return
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (node.type === 'button') buttons.push(node)
+    ;(node.children ?? []).forEach(walk)
+  }
+  walk(tree)
+  assert.equal(buttons.length, 1)
+  const button = buttons[0]
+  assert.equal(button.props['aria-pressed'], 'true', 'the button must report the effective state')
+  assert.equal(button.props['data-state'], 'forced-on', 'a session forced against the default must look forced')
+  assert.match(button.props.title, /本会话强制开启/, 'the title must say why it is on')
+  assert.match(button.props.title, /关闭注入/, 'the title must name what the next click does')
   renderer.unmount()
 })
 

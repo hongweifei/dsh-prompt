@@ -20,7 +20,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(join(here, '..', 'lib', 'client.js'), 'utf8')
 
 const STATUS = {
-  enabled: true,
+  // The panel's "default mode". The product default is off; the fixture shows a
+  // user who turned it on, so the screenshots document the ON state.
+  defaultEnabled: true,
   inject: { system: true, context: true, message: false },
   snippets: [
     {

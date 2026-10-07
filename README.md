@@ -10,14 +10,19 @@ DSH 提示词注入插件：把可复用的提示词片段注入到模型的三�
 | **运行时上下文** `context` | 宿主的 runtime-context 快照（一条 user 角色消息） | 每轮的环境事实 | 每轮刷新 |
 | **每轮用户消息** `message` | 每轮开头的一条用户消息 | 临时要求 | 每轮一次 |
 
-三条通道各自可开关，并且可以**按会话**覆盖（跟随全局 / 强制开 / 强制关）。
+三条通道各自可开关。是否注入由两层决定：
+
+- **默认模式**（设置页）：出厂为**默认关**。没单独设置过的会话按它执行。
+- **会话开关**（输入框旁按钮 / 设置页的「覆盖」）：只影响当前会话，`跟随默认` / `强制开` / `强制关`。
+
+**装完不会立刻改变任何请求**——这是刻意的：注入会改写每一次请求，所以它必须由你手动打开。
 
 ## 三个入口
 
-- **设置页**：设置 → 「提示词片段」。完整管理：增删改、启停、同通道内上移下移、会话内片段、注入预览、存储路径。
-- **输入框旁的快捷开关**：对话输入框工具行里的一枚小按钮，左键循环 `跟随全局 → 强制开 → 强制关 → 跟随全局`，鼠标悬停提示「下一次点击会变成什么」。
+- **设置页**：设置 → 「提示词片段」。完整管理：增删改、启停、同通道内上移下移、会话内片段、注入预览、存储路径，以及**默认模式（默认开 / 默认关）**。
+- **输入框旁的快捷开关**：对话输入框工具行里的一枚小按钮。一次点击把**当前会话**切到相反状态；当「跟随默认」已经能给出想要的结果时，它会清掉覆盖而不是留下一条多余的记录。鼠标悬停提示「下一次点击会变成什么」。
 - **斜杠命令**：无 Web 连接的 profile 也能用。
-  - `/prompt` — 列出片段与各通道状态
+  - `/prompt` — 列出片段与各通道状态（`/prompt on|off` 改默认模式）
   - `/prompt-add <名称> | <system|context|message> | <正文>`
   - `/prompt-remove <id>`
   - `/prompt-session [status|auto|on|off|add <正文>|clear]`
@@ -74,13 +79,21 @@ desktop 这类由 Electron 管理的 profile 只能用宿主内的 plugin_manage
 ## 测试
 
 ```bash
-node test/run.mjs         # 全部：单元 42 + 插值安全 6 + 集成 39 + 客户端 19 + 架构 12 = 118
-node test/preview.mjs     # 渲染真实面板 → test/preview.html
-node test/shots.mjs       # 截图到 test/shots/（zh/en × light/dark）
-node test/probe-live.mjs  # 用真实存储回读三个通道的最终文本（排查现场用）
+node test/run.mjs          # 全部：单元 43 + 插值安全 6 + 集成 41 + 客户端 22 + 架构 12 = 124
+node test/check-encoding.mjs  # 全树扫描 CP936 损坏与 BOM（提交前必跑）
+node test/preview.mjs      # 渲染真实面板 → test/preview.html
+node test/shots.mjs        # 截图到 test/shots/（zh/en × light/dark）
+node test/probe-live.mjs   # 用真实存储回读三个通道的最终文本（排查现场用）
+node test/probe-session.mjs <会话目录>   # 逐帧解压会话日志，查某段文本是否真的注入过
 ```
 
 `test/shots/*.png` 是随仓库提交的文档，改面板就要重新生成；`shots.mjs` 会比较四张图的哈希，**两张图字节相同就直接报错**（Edge 会按 URL 缓存 `file://`，否则第二次截图会静默复用第一张）。
+
+### ⚠ 不要用 PowerShell 改本仓库的文本文件
+
+这台机器的 PowerShell 5.1 是 CP936 代码页：`Get-Content -Raw` + `Set-Content` / `WriteAllText` 的往返会把这个 UTF-8 文件按 CP936 解码再按 UTF-8 写出，**每一个非 ASCII 字符都会变成乱码，且部分字节直接丢失、不可还原**（`—` 会变成 `?`）。本项目因此损坏过 `lib/client.js` 两次、`test/unit.test.mjs` 一次。
+
+用 read/edit/write 工具，或写一个 Node 脚本（Node 的 `fs` 严格按 UTF-8 读写）。提交前跑 `node test/check-encoding.mjs`——架构测试里也有一道同样的守卫。
 
 ## 许可
 

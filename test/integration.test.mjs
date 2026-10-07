@@ -222,6 +222,22 @@ const settle = async () => {
   for (let index = 0; index < 8; index += 1) await Promise.resolve()
 }
 
+/**
+ * Turn the default mode on for a booted plugin.
+ *
+ * Injection is **off by default** — that is the product decision — so a test
+ * that asserts something is injected has to say so explicitly. Making this an
+ * obvious call rather than a hidden fixture default is the point: a test that
+ * forgot it would fail loudly instead of passing for the wrong reason.
+ */
+async function enableInjection(ctx) {
+  const response = await callRoute(ctx, ROUTE_PATHS.toggle, {
+    method: 'POST',
+    body: JSON.stringify({ defaultEnabled: true }),
+  })
+  assert.equal(response.status, 200, 'enabling the default mode must succeed')
+}
+
 /** Call one registered route with a URL and optional body. */
 async function callRoute(ctx, path, init) {
   const bare = path.split('?')[0]
@@ -360,6 +376,7 @@ await test('a run of three braces cannot reach the harness as a real group', () 
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'braces', text: 'test {{{a}}} and {{unknown}} and {{ open', target: 'context' }),
@@ -392,6 +409,7 @@ await test('a system snippet reaches the system section, verbatim', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'style', text: 'Reply in Chinese.', target: 'system' }),
@@ -408,6 +426,7 @@ await test('a user literal {{ never reaches the harness uninterpolated on the sy
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'braces', text: 'Write {{curly}} literally.', target: 'system' }),
@@ -423,6 +442,7 @@ await test('a context snippet is escaped so the harness cannot throw on it', () 
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'braces', text: 'Write {{curly}} literally.', target: 'context' }),
@@ -437,6 +457,7 @@ await test('{{cwd}} is substituted from the assembly agent, not the host process
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'cwd', text: 'Working in {{cwd}} as {{model}}.', target: 'system' }),
@@ -451,6 +472,7 @@ await test('the message channel adds a framed message after the claimed batch', 
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'temp', text: 'Answer briefly.', target: 'message' }),
@@ -477,6 +499,7 @@ await test('the message channel does not inject the same text twice in a row', (
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'temp', text: 'Answer briefly.', target: 'message' }),
@@ -500,6 +523,7 @@ await test('a rejected step is passed through untouched', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'temp', text: 'Answer briefly.', target: 'message' }),
@@ -518,6 +542,7 @@ await test('switching a channel off silences only that channel', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 's', text: 'SYSTEM TEXT', target: 'system' }),
@@ -534,28 +559,30 @@ await test('switching a channel off silences only that channel', () =>
     ctx.dispose()
   }))
 
-await test('a per-session override beats the global switch, in both directions', () =>
+await test('a per-session override beats the default mode, in both directions', () =>
   withTempHome(async () => {
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 's', text: 'SYSTEM TEXT', target: 'system' }),
     })
     const agent = createAgent('session-i')
-    // Global off, session forced on.
-    await callRoute(ctx, ROUTE_PATHS.toggle, { method: 'POST', body: JSON.stringify({ enabled: false }) })
+    // Default off: a session that has not chosen gets nothing.
+    await callRoute(ctx, ROUTE_PATHS.toggle, { method: 'POST', body: JSON.stringify({ defaultEnabled: false }) })
     assert.equal(ctx.sections[0].text({ agent }), '')
+    // Session forced on: it injects even though the default is off.
     await callRoute(ctx, ROUTE_PATHS.session, {
       method: 'POST',
       body: JSON.stringify({ action: 'on', sessionId: 'session-i' }),
     })
     assert.equal(ctx.sections[0].text({ agent }), 'SYSTEM TEXT')
-    // A different session is unaffected by that override.
+    // Another session is unaffected by that override.
     assert.equal(ctx.sections[0].text({ agent: createAgent('session-other') }), '')
-    // And the override can turn it off again while the global switch is on.
-    await callRoute(ctx, ROUTE_PATHS.toggle, { method: 'POST', body: JSON.stringify({ enabled: true }) })
+    // With the default on, a session forced OFF stays silent while others inject.
+    await callRoute(ctx, ROUTE_PATHS.toggle, { method: 'POST', body: JSON.stringify({ defaultEnabled: true }) })
     await callRoute(ctx, ROUTE_PATHS.session, {
       method: 'POST',
       body: JSON.stringify({ action: 'off', sessionId: 'session-i' }),
@@ -565,11 +592,63 @@ await test('a per-session override beats the global switch, in both directions',
     ctx.dispose()
   }))
 
+await test('injection is off until it is turned on', () =>
+  withTempHome(async () => {
+    // The product decision: installing the plugin must not change any request.
+    const ctx = createCtx()
+    apply(ctx, {})
+    await settle()
+    await callRoute(ctx, ROUTE_PATHS.snippet, {
+      method: 'POST',
+      body: JSON.stringify({ name: 's', text: 'SYSTEM TEXT', target: 'system' }),
+    })
+    const agent = createAgent('session-default-off')
+    assert.equal(ctx.sections[0].text({ agent }), '', 'a fresh install must inject nothing')
+    assert.equal(ctx.contexts[0].text({ agent }), '')
+    const status = await ctx.get('prompt').status({ session: agent.session })
+    assert.equal(status.defaultEnabled, false, 'the default mode must ship off')
+    assert.equal(status.session.effective, false)
+    // And the message channel stays silent too.
+    const decision = await ctx.waterfall(
+      'agent/pre-step',
+      { agent, messages: [{ id: 'm1' }], turn: 1, step: 1, signal: undefined },
+      async () => ({ kind: 'enter', messages: [{ id: 'm1' }] }),
+    )
+    assert.equal(decision.messages.length, 1)
+    ctx.dispose()
+  }))
+
+await test('the composer switch turns one session on without changing the default', () =>
+  withTempHome(async () => {
+    const ctx = createCtx()
+    apply(ctx, {})
+    await settle()
+    await callRoute(ctx, ROUTE_PATHS.snippet, {
+      method: 'POST',
+      body: JSON.stringify({ name: 's', text: 'SYSTEM TEXT', target: 'system' }),
+    })
+    // What the composer button does: force THIS session on.
+    await callRoute(ctx, ROUTE_PATHS.session, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'on', sessionId: 'session-quick' }),
+    })
+    const agent = createAgent('session-quick')
+    assert.equal(ctx.sections[0].text({ agent }), 'SYSTEM TEXT')
+    const status = await ctx.get('prompt').status({ session: agent.session })
+    assert.equal(status.defaultEnabled, false, 'the default must be untouched by a session switch')
+    assert.equal(status.session.override, 'on')
+    assert.equal(status.session.effective, true)
+    // A brand-new session still follows the default, which is still off.
+    assert.equal(ctx.sections[0].text({ agent: createAgent('session-fresh') }), '')
+    ctx.dispose()
+  }))
+
 await test('a session-only extra applies to that session and no other', () =>
   withTempHome(async () => {
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.session, {
       method: 'POST',
       body: JSON.stringify({ action: 'add-extra', sessionId: 'session-j', text: 'ONLY HERE', target: 'message' }),
@@ -602,6 +681,7 @@ await test('a snippet written through the route is persisted to disk', () =>
     const ctx = createCtx({ fs: createNodeFs() })
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const created = await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'persisted', text: 'Hello.', target: 'system' }),
@@ -609,7 +689,7 @@ await test('a snippet written through the route is persisted to disk', () =>
     assert.equal(created.status, 200)
     const file = join(process.env.DSH_HOME, 'prompt', 'snippets.json')
     const parsed = JSON.parse(readFileSync(file, 'utf8'))
-    assert.equal(parsed.version, 1)
+    assert.equal(parsed.version, 2)
     assert.equal(parsed.snippets.length, 1)
     assert.equal(parsed.snippets[0].name, 'persisted')
     const status = await ctx.get('prompt').status({})
@@ -622,6 +702,7 @@ await test('a store written by one process is read back by the next', () =>
     const first = createCtx({ fs: createNodeFs() })
     apply(first, {})
     await settle()
+    await enableInjection(first)
     await callRoute(first, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'durable', text: 'SURVIVES', target: 'system' }),
@@ -631,6 +712,7 @@ await test('a store written by one process is read back by the next', () =>
     const second = createCtx({ fs: createNodeFs() })
     apply(second, {})
     await settle()
+    await enableInjection(second)
     assert.equal(second.sections[0].text({ agent: createAgent('session-restart') }), 'SURVIVES')
     second.dispose()
   }))
@@ -639,13 +721,13 @@ await test('a snippet edited in the file is picked up by a refresh', () =>
   withTempHome(async (dir) => {
     const file = join(dir, 'prompt', 'snippets.json')
     const fs = createFs()
-    fs.seed(file, JSON.stringify({ version: 1, enabled: true, inject: { system: true, context: true, message: true }, snippets: [{ id: 'p-1', name: 'external', text: 'FROM FILE', target: 'system', enabled: true, order: 1 }], sessions: {} }))
+    fs.seed(file, JSON.stringify({ version: 2, defaultEnabled: true, inject: { system: true, context: true, message: true }, snippets: [{ id: 'p-1', name: 'external', text: 'FROM FILE', target: 'system', enabled: true, order: 1 }], sessions: {} }))
     const ctx = createCtx({ fs })
     apply(ctx, {})
     await settle()
     assert.equal(ctx.sections[0].text({ agent: createAgent('session-l') }), 'FROM FILE')
     // Rewrite the file behind the plugin's back and refresh.
-    fs.seed(file, JSON.stringify({ version: 1, enabled: true, inject: { system: true, context: true, message: true }, snippets: [{ id: 'p-2', name: 'external2', text: 'CHANGED', target: 'system', enabled: true, order: 1 }], sessions: {} }))
+    fs.seed(file, JSON.stringify({ version: 2, defaultEnabled: true, inject: { system: true, context: true, message: true }, snippets: [{ id: 'p-2', name: 'external2', text: 'CHANGED', target: 'system', enabled: true, order: 1 }], sessions: {} }))
     await ctx.get('prompt').refresh()
     assert.equal(ctx.sections[0].text({ agent: createAgent('session-l') }), 'CHANGED')
     ctx.dispose()
@@ -659,6 +741,8 @@ await test('a corrupt store is reported and falls back to empty, never throwing'
     const ctx = createCtx({ fs })
     apply(ctx, {})
     await settle()
+    // Deliberately NO `enableInjection` here: it writes the store, which would
+    // replace the corrupt fixture this test exists to read.
     const status = await ctx.get('prompt').status({})
     assert.match(status.storage.error, /not valid JSON/)
     assert.deepEqual(status.snippets, [])
@@ -671,6 +755,7 @@ await test('deleting a snippet removes it from disk and from injection', () =>
     const ctx = createCtx({ fs: createNodeFs() })
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const created = await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'gone', text: 'REMOVE ME', target: 'system' }),
@@ -690,6 +775,7 @@ await test('deleting an unknown id is a 404, not a silent success', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const response = await callRoute(ctx, `${ROUTE_PATHS.snippet}?id=p-nope`, { method: 'DELETE' })
     assert.equal(response.status, 404)
     ctx.dispose()
@@ -700,6 +786,7 @@ await test('an invalid snippet is refused with a reason and nothing is written',
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const empty = await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'x', text: '   ', target: 'system' }),
@@ -721,6 +808,7 @@ await test('a malformed request body is refused, not crashed on', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const response = await callRoute(ctx, ROUTE_PATHS.snippet, { method: 'POST', body: 'not json' })
     assert.equal(response.status, 400)
     assert.match(response.body.error, /valid JSON/)
@@ -732,6 +820,7 @@ await test('editing an existing snippet keeps its id and order', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const created = await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'first', text: 'one', target: 'system', order: 7 }),
@@ -757,6 +846,7 @@ await test('status reports the channels, counts, session and budget', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 's', text: 'system text', target: 'system' }),
@@ -767,7 +857,7 @@ await test('status reports the channels, counts, session and budget', () =>
     })
     const agent = createAgent('session-p')
     const status = await ctx.get('prompt').status({ session: agent.session })
-    assert.equal(status.enabled, true)
+    assert.equal(status.defaultEnabled, true)
     assert.deepEqual(status.inject, { system: true, context: true, message: true })
     assert.equal(status.snippets.length, 2)
     assert.deepEqual(status.counts, { system: 1, context: 0, message: 1 })
@@ -796,6 +886,7 @@ await test('preview shows each channel and says which snippets fed it', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const created = await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 's', text: 'SYSTEM', target: 'system' }),
@@ -815,6 +906,7 @@ await test('preview of a session with injection off says so instead of showing t
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 's', text: 'SYSTEM', target: 'system' }),
@@ -847,6 +939,7 @@ await test('the preview route answers over the real HTTP handler', () =>
     const ctx = createCtx({ initiator: agent })
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 's', text: 'OVER HTTP', target: 'system' }),
@@ -863,6 +956,7 @@ await test('the status route names the session it was asked about', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const response = await callRoute(ctx, `${ROUTE_PATHS.status}?session=session-named`)
     assert.equal(response.status, 200)
     assert.equal(response.body.session.id, 'session-named')
@@ -894,6 +988,7 @@ await test('/prompt lists the snippets and the channel state', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
       body: JSON.stringify({ name: 'listed', text: 'TEXT', target: 'system' }),
@@ -901,7 +996,7 @@ await test('/prompt lists the snippets and the channel state', () =>
     const command = ctx.commands.find((candidate) => candidate.name === 'prompt')
     const result = await command.handler({ agent: createAgent('session-t'), rawInput: '' })
     assert.equal(result.kind, 'success')
-    assert.match(result.text, /injection on/)
+    assert.match(result.text, /default mode on/)
     assert.match(result.text, /system=1/)
     assert.match(result.text, /listed/)
     ctx.dispose()
@@ -912,6 +1007,7 @@ await test('/prompt-add validates its target and refuses a bad one', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const command = ctx.commands.find((candidate) => candidate.name === 'prompt-add')
     const bad = await command.handler({ rawInput: 'name | nowhere | text' })
     assert.equal(bad.kind, 'error')
@@ -929,6 +1025,7 @@ await test('/prompt-remove refuses an unknown id and deletes a known one', () =>
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const add = ctx.commands.find((candidate) => candidate.name === 'prompt-add')
     await add.handler({ rawInput: 'gone | system | text' })
     const status = await ctx.get('prompt').status({})
@@ -945,6 +1042,7 @@ await test('/prompt-session sets an override and reports the resolved state', ()
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const command = ctx.commands.find((candidate) => candidate.name === 'prompt-session')
     const agent = createAgent('session-u')
     const off = await command.handler({ agent, rawInput: 'off' })
@@ -963,6 +1061,7 @@ await test('/prompt-session refuses an unknown action rather than doing nothing 
     const ctx = createCtx()
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     const command = ctx.commands.find((candidate) => candidate.name === 'prompt-session')
     const result = await command.handler({ agent: createAgent('session-v'), rawInput: 'nonsense' })
     assert.equal(result.kind, 'error')
@@ -992,6 +1091,7 @@ await test('a store write made by one process is not clobbered by another writer
     const ctx = createCtx({ fs })
     apply(ctx, {})
     await settle()
+    await enableInjection(ctx)
     // A first writer creates the file through the route.
     await callRoute(ctx, ROUTE_PATHS.snippet, {
       method: 'POST',
